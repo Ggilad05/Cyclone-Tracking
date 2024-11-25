@@ -14,7 +14,7 @@ import matplotlib.colors as mcolors
 
 def adjust_map(ds, time, level=None, time_dim='time', level_dim='level'):
     """
-       Adjusts the spatial range of a dataset by duplicating and shifting latitude and longitude values.
+       Adjusts the spatial range of a dataset by tripeling and shifting longitude values.
 
        Parameters:
            ds (xarray.Dataset): The input dataset to adjust.
@@ -39,24 +39,10 @@ def adjust_map(ds, time, level=None, time_dim='time', level_dim='level'):
     ds_shifted_l['longitude'] = selected_data['longitude'] - 360
 
     # Combine the original and shifted datasets for longitudes
-    ds_long_doubled = xr.concat([ds_shifted_l, selected_data, ds_shifted_r], dim='longitude')
+    ds_long_tripled = xr.concat([ds_shifted_l, selected_data, ds_shifted_r], dim='longitude')
 
-    # Step 2: Create shifted latitude arrays by duplicating the data
-    ds_shifted_u = ds_long_doubled.copy(deep=True)
-    ds_shifted_d = ds_long_doubled.copy(deep=True)
-    ds_shifted_u['latitude'] = ds_long_doubled['latitude'] + 180
-    ds_shifted_d['latitude'] = ds_long_doubled['latitude'] - 180
 
-    # Combine the original and shifted datasets for latitudes
-    ds_doubled = xr.concat(
-        [ds_shifted_d.isel(latitude=slice(None, -1)), ds_long_doubled, ds_shifted_u.isel(latitude=slice(1, None))],
-        dim='latitude'
-    )
-
-    # Sort longitudes and latitudes for proper ordering
-    ds_doubled = ds_doubled.sortby(['longitude', 'latitude'])
-
-    return ds_doubled
+    return ds_long_tripled
 
 
 def cut_polygon(reanalysis_data, time, x, y, space_lon, space_lat, resolution, var, level=None):
@@ -85,27 +71,30 @@ def cut_polygon(reanalysis_data, time, x, y, space_lon, space_lat, resolution, v
     time_dim = 'valid_time' if 'valid_time' in reanalysis_data.dims else 'time'
     level_dim = 'pressure_level' if 'pressure_level' in reanalysis_data.dims else 'level'
 
-    # Double the map and adjust longitudes
-    doubled_reanalysis_data = adjust_map(reanalysis_data, time, level, time_dim, level_dim)
+    if np.any(longitudes >= 360) or np.any(longitudes < 0):
+        # Tripled the map and adjust longitudes
+        tripled_reanalysis_data = adjust_map(reanalysis_data, time, level, time_dim, level_dim)
 
-    # Deduplicate latitude and longitude indices
-    doubled_reanalysis_data = doubled_reanalysis_data.isel(
-        longitude=np.unique(doubled_reanalysis_data['longitude'], return_index=True)[1],
-        latitude=np.unique(doubled_reanalysis_data['latitude'], return_index=True)[1],
-    )
+        # Select data from the tripeled map
+        polygon = tripled_reanalysis_data.sel(
+            **{"longitude": longitudes, "latitude": latitudes},
+            method='nearest'
+        )
+        # # Optional: plot the data for verification
+        # plot_combined_and_tripeled_data(tripled_reanalysis_data, polygon, longitudes, latitudes, var, level)
+    else:
+        polygon = reanalysis_data.sel(**{time_dim: time, "longitude": longitudes, "latitude": latitudes}, method='nearest')
+        reanalysis_data_red = reanalysis_data.sel(**{time_dim: time})
+        if level:
+            polygon = polygon.sel(**{level_dim: level})
+            reanalysis_data_red = reanalysis_data_red.sel(**{level_dim: level})
 
-    # Select data from the doubled map
-    combined_ds = doubled_reanalysis_data.sel(
-        **{"longitude": longitudes, "latitude": latitudes},
-        method='ffill'
-    )
-    # # Optional: plot the data for verification
-    plot_combined_and_doubled_data(doubled_reanalysis_data, combined_ds, longitudes, latitudes, var, level)
+        # plot_combined_and_tripeled_data(reanalysis_data_red, polygon, longitudes, latitudes, var, level)
 
-    return np.flipud(combined_ds[var].to_numpy())  # Flip data for proper orientation
+    return np.flipud(polygon[var].to_numpy())  # Flip data for proper orientation
 
 
-def plot_combined_and_doubled_data(doubled_reanalysis_data, combined_ds, longitudes, latitudes, var, level=None):
+def plot_combined_and_tripeled_data(doubled_reanalysis_data, combined_ds, longitudes, latitudes, var, level=None):
     """
       Visualizes the doubled dataset and the extracted region for verification.
 
@@ -129,7 +118,7 @@ def plot_combined_and_doubled_data(doubled_reanalysis_data, combined_ds, longitu
     # First subplot: Doubled Reanalysis Data with Marked Area
     ax1 = axes[0]
     im1 = ax1.imshow(
-        doubled_reanalysis_data[var],
+        np.flipud(doubled_reanalysis_data[var]),
         extent=[
             doubled_reanalysis_data.longitude.min(),
             doubled_reanalysis_data.longitude.max(),
@@ -182,68 +171,80 @@ def plot_combined_and_doubled_data(doubled_reanalysis_data, combined_ds, longitu
     plt.tight_layout()
     plt.show()
 
-
 def process_track(data, track_id, v, level, reanalysis_directory, space_lon, space_lat, resolution,
                   starting_season_date, file_name, year):
     """
-        Processes a single cyclone track to extract reanalysis variables along the track.
+    Processes a single cyclone track to extract reanalysis variables along the track.
 
-        Parameters:
-            data (xarray.Dataset): Cyclone track dataset.
-            track_id (int): ID of the cyclone track to process.
-            v (str): Variable to extract (e.g., 'temperature').
-            level (int, optional): Pressure level to process. Default is None.
-            reanalysis_directory (str): Path to reanalysis data.
-            space_lon (float): Longitudinal range to extract.
-            space_lat (float): Latitudinal range to extract.
-            resolution (float): Spatial resolution of the data.
-            starting_season_date (datetime): Reference start date of the cyclone season.
-            file_name (str): Name of the file being processed.
-            year (int): Year of the track data.
-        """
+    Parameters:
+        data (xarray.Dataset): Cyclone track dataset.
+        track_id (int): ID of the cyclone track to process.
+        v (str): Variable to extract (e.g., 'temperature').
+        level (int, optional): Pressure level to process. Default is None.
+        reanalysis_directory (str): Path to reanalysis data.
+        space_lon (float): Longitudinal range to extract.
+        space_lat (float): Latitudinal range to extract.
+        resolution (float): Spatial resolution of the data.
+        starting_season_date (datetime): Reference start date of the cyclone season.
+        file_name (str): Name of the file being processed.
+        year (int): Year of the track data.
+    """
 
-    if level:
-        print(f"Processing level-dependent variable {v} at level {level} for track {track_id.values} in file {file_name}")
-    else:
-        print(f"Processing surface variable {v} for track {track_id.values} in file {file_name}")
+    print(
+        f"Processing {'level-dependent variable' if level else 'surface variable'} {v} "
+        f"for track {track_id.values} in file {file_name}"
+    )
 
-    tensor_p_storm = []
-    x_p = []
-    y_p = []
+    # Initialize tensors dictionary for multiple time offsets
+    tensors = {0: [], 6: [], 12: [], 18: [], 24: []}
+    tensors_indexes = [0, 2, 4, 6, 8]
+    x_p, y_p = [], []
 
+    # Filter time indexes and remove zeros
     time_indexes = data.sel(trackid=track_id)['t'].to_numpy()
-    time_indexes = np.delete(time_indexes, np.where(time_indexes == 0.))
+    time_indexes = time_indexes[time_indexes != 0]
     odd_time_indexes = time_indexes[time_indexes % 2 != 0]
 
+    # Preload dataset if `v` is 'z_geo'
+    preloaded_reanalysis = None
+    if v == 'z_geo':
+        preloaded_reanalysis = xr.open_dataset(reanalysis_directory)
+
+
     for i in odd_time_indexes:
+        if i == 17.0:
+            print('s')
         x = data.sel(trackid=track_id)['lon'].where(data.sel(trackid=track_id)['t'] == i).dropna(dim='points').data[0]
         y = data.sel(trackid=track_id)['lat'].where(data.sel(trackid=track_id)['t'] == i).dropna(dim='points').data[0]
         time = starting_season_date + timedelta(hours=3) * (i - 1)
         x_p.append(x)
         y_p.append(y)
 
-        # print(reanalysis_directory)
-        if v != 'z_geo':
-            reanalysis_data, lons, lats = get_nc(time.year, time.month, reanalysis_directory)
-            result = cut_polygon(reanalysis_data, time, x, y, space_lon, space_lat, resolution, v, level)
-        else:
-            reanalysis_data = xr.open_dataset(reanalysis_directory)
-            result = cut_polygon(reanalysis_data, '1979-01-01T00:00:00', x, y, space_lon, space_lat, resolution, 'z',
-                                 level)
+        for offset in tensors_indexes:
+            future_index = i + offset
+            if future_index > odd_time_indexes[-1]:
+                continue
 
-        # Process the data for the specific level or surface
-        tensor_p_storm.append(result)
-    plot_track(x_p, y_p, file_name, track_id.values)
+            x_future = data.sel(trackid=track_id)['lon'].where(data.sel(trackid=track_id)['t'] == future_index).dropna(
+                dim='points').data[0]
+            y_future = data.sel(trackid=track_id)['lat'].where(data.sel(trackid=track_id)['t'] == future_index).dropna(
+                dim='points').data[0]
 
-    # Save computed result for the specific variable and level
-    if level:
-        output_path = f"/data/iacdc/ECMWF/ERA5/Gilad/check/v4/{v}a/{level}/{year}/{file_name}_{int(track_id.values)}.npy"
+            if v != 'z_geo':
+                reanalysis_data, _, _ = get_nc(time.year, time.month, reanalysis_directory)
+                result = cut_polygon(reanalysis_data, time, x_future, y_future, space_lon, space_lat, resolution, v,
+                                     level)
+            else:
+                result = cut_polygon(preloaded_reanalysis, '1979-01-01T00:00:00', x_future, y_future, space_lon,
+                                     space_lat, resolution, 'z', level)
 
-    else:
-        output_path = f"/data/iacdc/ECMWF/ERA5/Gilad/check/v4/{v}/{year}/{file_name}_{int(track_id.values)}.npy"
-    # np.save(output_path, np.array(tensor_p_storm))
+            tensors[offset * 3].append(result)
+
+
+    # Save results
+    # output_path = f"/data/iacdc/ECMWF/ERA5/Gilad/check/v4/{v}{'a' if level else ''}/{level or ''}/{year}/{file_name}_{int(track_id.values)}.npy"
+    # np.save(output_path, np.array(tensors[0]))
     # print(f"Saved result for {v} to {output_path}")
-
 
 def plot_track(x, y, name, num):
     """
@@ -327,7 +328,8 @@ if __name__ == '__main__':
         '/data/iacdc/ECMWF/ERA5/4xday_1.25_global_1000-200hPa/sfc_geo/correct/sfc_geopotential_6hr_reanalysis_ERA5_1979-01-01_1979-01-31.nc'
     ]
 
-    # # Variables with levels
+
+    # Variables with levels
     level_variables = ['t', 'q', 'v', 'u', 'z']
     levels = [250, 300, 500, 850]
     level_directories = [
@@ -338,13 +340,13 @@ if __name__ == '__main__':
         "/data/iacdc/ECMWF/ERA5/4xday_1.25_global_1000-200hPa/z/z_6hrPlev_reanalysis_ERA5_"
     ]
 
+
     year_pattern = re.compile(r'_(\d{4})_')
     all_files = glob.glob(f"{data_path}/*.nc")
     file_paths = [file for file in all_files if start_year <= int(year_pattern.search(file).group(1)) <= end_year]
 
     for file in file_paths:
 
-        # for file,track_id  in zip([file[0] for file in selected_files],[file[0] for file in selected_files][1]):
         print(f"Processing file: {file}")
         file_name = file.split('/')[-1].split('.')[0]
         season, year = file_name.split('_')[0], file_name.split('_')[1]
