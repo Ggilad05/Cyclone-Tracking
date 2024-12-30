@@ -261,8 +261,8 @@ def process_track(data, track_id, v, level, reanalysis_directory, space_lon, spa
         f"for track {track_id.values} in file {file_name}"
     )
 
-    tensor = []
-    tensors_indexes = [0, 2, 4, 6, 8]  # Indexes for time offset 0, 6, 12, 18, 24
+
+    tensors_indexes = [2, 4, 6, 8]  # Indexes for time offset 0, 6, 12, 18, 24
 
     x_p, y_p = [], []  # For storm track plot
     track_data = {'longitude': [], 'latitude': [], 'intensity': [], 'day': [], 'hour': []}  # For encoded data
@@ -279,6 +279,7 @@ def process_track(data, track_id, v, level, reanalysis_directory, space_lon, spa
         preloaded_reanalysis = xr.open_dataset(reanalysis_directory)
 
     for offset in tensors_indexes:  # First offset is 0
+        tensor = []
         for i in odd_time_indexes:
             future_index = i + offset  # Check for offset time if there is data
             if future_index > odd_time_indexes[-1]:
@@ -328,19 +329,19 @@ def process_track(data, track_id, v, level, reanalysis_directory, space_lon, spa
         # Save data
         if offset == 0:
             output_paths = {
-                'longitude': f"/data/iacdc/ECMWF/ERA5/Gilad/check/v4_{offset}/longitude/{year}/",
-                'latitude': f"/data/iacdc/ECMWF/ERA5/Gilad/check/v4_{offset}/latitude/{year}/",
-                'intensity': f"/data/iacdc/ECMWF/ERA5/Gilad/check/v4_{offset}/intensity/{year}/",
-                'day': f"/data/iacdc/ECMWF/ERA5/Gilad/check/v4_{offset}/day/{year}/",
-                'hour': f"/data/iacdc/ECMWF/ERA5/Gilad/check/v4_{offset}/hour/{year}/",
+                'longitude': f"/data/iacdc/ECMWF/ERA5/Gilad/check/v5_{offset}/longitude/{year}/",
+                'latitude': f"/data/iacdc/ECMWF/ERA5/Gilad/check/v5_{offset}/latitude/{year}/",
+                'intensity': f"/data/iacdc/ECMWF/ERA5/Gilad/check/v5_{offset}/intensity/{year}/",
+                'day': f"/data/iacdc/ECMWF/ERA5/Gilad/check/v5_{offset}/day/{year}/",
+                'hour': f"/data/iacdc/ECMWF/ERA5/Gilad/check/v5_{offset}/hour/{year}/",
             }
             save_track_data(output_paths, file_name, track_id, track_data)
 
         # Save tensor data
         if level:
-            output_path = f"/data/iacdc/ECMWF/ERA5/Gilad/check/v4_{offset}/{v}a/{level}/{year}/"
+            output_path = f"/data/iacdc/ECMWF/ERA5/Gilad/check/v5_{offset}/{v}a/{level}/{year}/"
         else:
-            output_path = f"/data/iacdc/ECMWF/ERA5/Gilad/check/v4_{offset}/{v}/{year}/"
+            output_path = f"/data/iacdc/ECMWF/ERA5/Gilad/check/v5_{offset}/{v}/{year}/"
 
         output_file = output_path + f"{file_name}_{int(track_id.values)}.npy"
 
@@ -411,7 +412,7 @@ def pre_tracks(file_path):
 # Main execution
 if __name__ == '__main__':
     data_path = "/data/shreibshtein/OrCyclones"
-    start_year, end_year = 1940, 2022
+    start_year, end_year = 1979, 2022
     space_lon, space_lat, resolution = 17.5, 15, 1.25
 
     # Variables without levels
